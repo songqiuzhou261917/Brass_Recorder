@@ -27,27 +27,38 @@ class BrassTracker:
         print("   《工业革命：伯明翰》硬核动作录入系统 v1.2   ")
         print("=========================================")
         
-        # 1. 读取已有 ID 用于去重
+ # 1. 读取已有 ID 用于去重和计算下一个自增 ID
         existing_ids = set()
+        max_id_num = 0  # 用来记录当前最大的 ID 数字数字
+
         if os.path.isfile(self.file_match):
             with open(self.file_match, mode="r", encoding="utf-8-sig") as f:
                 reader = csv.reader(f)
                 next(reader, None)  # 跳过表头
                 for row in reader:
-                    if row:
+                    if row and row[0]:
                         existing_ids.add(row[0])
+                        # 尝试将 ID 转换为整数，用来找出最大值
+                        try:
+                            id_int = int(row[0])
+                            if id_int > max_id_num:
+                                max_id_num = id_int
+                        except ValueError:
+                            pass  # 如果有脏数据导致无法转换，直接跳过
 
-        # 2. 校验对局 ID
-        while True:
-            m_id = input("请输入4位数字对局ID (如 0001): ").strip()
-            if not (m_id.isdigit() and len(m_id) == 4):
-                print("❌ 格式错误！对局ID必须是【4位纯数字】。")
-                continue
-            if m_id in existing_ids:
-                print(f"❌ ID 冲突！对局 {m_id} 已经存在，请更换一个ID。")
-                continue
-            self.match_id = m_id
-            break
+        # 2. 自动生成全新、不重复的 4 位数字对局 ID
+        next_id_num = max_id_num + 1
+        
+        # 使用 f-string 的 :04d 语法，自动将数字补齐为 4 位字符串（例如: 5 -> "0005"）
+        m_id = f"{next_id_num:04d}"
+        
+        # 安全兜底：万一算出来的 ID 因为某些特殊原因依然冲突，就继续往上加直到不冲突
+        while m_id in existing_ids:
+            next_id_num += 1
+            m_id = f"{next_id_num:04d}"
+
+        self.match_id = m_id
+        print(f"🤖 系统已自动为您创建全新对局，ID 分配为: 【{self.match_id}】")
 
         # 3. 校验玩家人数
         while True:
