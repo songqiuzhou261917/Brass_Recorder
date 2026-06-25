@@ -1,10 +1,12 @@
 import csv
 import os
+import sys
 from datetime import datetime
 import uuid
+import pandas as pd
 
 # 基础常量定义
-CITIES = ["斯托克", "汉利", "利克", "乌托克塞特", "伯顿", "德比", "贝尔珀", "诺丁汉", "塔姆沃思", "伯明翰", "华沙尔", "武弗汉普顿", "达德利", "斯塔福德", "基德明斯特", "伍斯特", "塞文谷"]
+CITIES = ["斯托克", "汉利", "利克", "乌托克塞特", "伯顿", "德比", "贝尔珀", "诺丁汉", "塔姆沃思", "伯明翰", "华沙尔", "武弗汉普顿", "达德利", "斯塔福德",[...] ]
 INDUSTRIES = ["箱子", "酒厂", "棉花厂", "陶瓷", "铁厂", "煤炭厂"]
 ACTION_TYPES = ["贷款", "连接-运河", "连接-铁路", "建造", "研发", "换牌", "销售", "弃牌跳过", "运河时代算分", "铁路时代算分"]
 AVAILABLE_COLORS = ["红色", "紫色", "黄色", "白色"]
@@ -33,27 +35,31 @@ class BrassTracker:
         max_id_num = 0  # 用来记录当前最大的 ID 数字数字
 
         if os.path.isfile(self.file_match):
-            with open(self.file_match, mode="r", encoding="utf-8-sig") as f:
-                reader = csv.reader(f)
-                next(reader, None)  # 跳过表头
-                for row in reader:
-                    if row and row[0]:
-                        existing_ids.add(row[0])
-                        # 尝试将 ID 转换为整数，用来找出最大值
-                        try:
-                            id_int = int(row[0])
-                            if id_int > max_id_num:
-                                max_id_num = id_int
-                        except ValueError:
-                            pass  # 如果有脏数据导致无法转换，直接跳过
+            # Prefer pandas for robust CSV handling
+            try:
+                df_matches = pd.read_csv(self.file_match, dtype=str, encoding='utf-8-sig')
+                if 'match_id' in df_matches.columns:
+                    existing_ids = set(df_matches['match_id'].dropna().astype(str).tolist())
+                    max_num = pd.to_numeric(df_matches['match_id'], errors='coerce').max()
+                    max_id_num = int(max_num) if not pd.isna(max_num) else 0
+            except Exception:
+                # Fallback to csv.reader for maximum compatibility
+                with open(self.file_match, mode="r", encoding="utf-8-sig") as f:
+                    reader = csv.reader(f)
+                    next(reader, None)  # 跳过表头
+                    for row in reader:
+                        if row and row[0]:
+                            existing_ids.add(row[0])
+                            try:
+                                id_int = int(row[0])
+                                if id_int > max_id_num:
+                                    max_id_num = id_int
+                            except ValueError:
+                                pass
 
         # 2. 自动生成全新、不重复的 4 位数字对局 ID
         next_id_num = max_id_num + 1
-        
-        # 使用 f-string 的 :04d 语法，自动将数字补齐为 4 位字符串（例如: 5 -> "0005"）
         m_id = f"{next_id_num:04d}"
-        
-        # 安全兜底：万一算出来的 ID 因为某些特殊原因依然冲突，就继续往上加直到不冲突
         while m_id in existing_ids:
             next_id_num += 1
             m_id = f"{next_id_num:04d}"
@@ -73,18 +79,20 @@ class BrassTracker:
 
         # 4. 输入昵称并选择颜色（使用结构化字典）
         self.players = []
+        # 使用局部颜色列表，避免修改全局常量 AVAILABLE_COLORS
+        local_colors = AVAILABLE_COLORS.copy()
         
         for i in range(num_players):
             name = input(f"\n[顺位 {i+1}] 请输入玩家昵称: ").strip()
             
             print(f"请选择 【{name}】 的玩家颜色:")
-            for idx, color in enumerate(AVAILABLE_COLORS):
+            for idx, color in enumerate(local_colors):
                 print(f"[{idx+1}] {color}")
             while True:
                 try:
                     c_choice = int(input("选择对应数字: ")) - 1
-                    if 0 <= c_choice < len(AVAILABLE_COLORS):
-                        chosen_color = AVAILABLE_COLORS.pop(c_choice)
+                    if 0 <= c_choice < len(local_colors):
+                        chosen_color = local_colors.pop(c_choice)
                         break
                 except ValueError:
                     pass
@@ -93,7 +101,6 @@ class BrassTracker:
             self.players.append({"name": name, "color": chosen_color})
             
         # 5. 写入表一：对局玩家表
-        file_exists = os.path.isfile(self.file_match)
         headers = [
             "match_id", "date", 
             "player_1_name", "player_1_color", 
@@ -106,20 +113,32 @@ class BrassTracker:
         for p in self.players:
             row_data.append(p["name"])
             row_data.append(p["color"])
-            
+        
         slot_needed = 10 - len(row_data)
         if slot_needed > 0:
             row_data.extend([""] * slot_needed)
             
         # 确保 data 文件夹存在
         os.makedirs(os.path.dirname(self.file_match), exist_ok=True)
+
+        # Use pandas to write/append the match row for consistency
+        row_dict = dict(zip(headers, row_data))
+        if os.path.isfile(self.file_match):
+            try:
+                df_existing = pd.read_csv(self.file_match, dtype=str, encoding='utf-8-sig')
+                df_new = pd.concat([df_existing, pd.DataFrame([row_dict])], ignore_index=True)
+            except Exception:
+                # Fallback: write using csv
+                with open(self.file_match, mode="a", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(row_data)
+            else:
+                df_new.to_csv(self.file_match, index=False, encoding='utf-8-sig')
+        else:
+            df_new = pd.DataFrame([row_dict], columns=headers)
+            df_new.to_csv(self.file_match, index=False, encoding='utf-8-sig')
             
-        with open(self.file_match, mode="a", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(headers)
-            writer.writerow(row_data)
-            
+        # 将 self.players 变为简单的名字列表，便于后续使用 player_id 字段
         self.players = [p["name"] for p in self.players]
         print(f"\n🎉 对局 {self.match_id} 初始化成功！")
 
@@ -145,6 +164,27 @@ class BrassTracker:
                     pass
                 print("❌ 输入无效，请重新选择。")
 
+    def numeric_input(self, prompt, default=0, allow_negative=True):
+        """统一的数字输入 + 确认交互。
+        prompt: 提示文字（不包含确认）
+        default: 回车时的默认值
+        allow_negative: 是否允许负数（例如收入变动可能为负）
+        """
+        while True:
+            s = input(prompt).strip()
+            try:
+                val = int(s or default)
+            except ValueError:
+                print("❌ 请输入整数。")
+                continue
+            if not allow_negative and val < 0:
+                print("❌ 不允许负数，请重新输入。")
+                continue
+            confirm = input(f" 👉 确认为 【{val}】 吗？[Y/N] (默认 Y): ").strip().upper()
+            if confirm == 'N':
+                continue
+            return val
+
     def record_action(self):
             if not self.players:
                 self.init_match()
@@ -155,28 +195,10 @@ class BrassTracker:
             print("="*80)
             
             # 1. 录入行动前现金（带确认）
-            while True:
-                cash_input = input("💰 行动前现金数量: ").strip()
-                try:
-                    pre_cash = int(cash_input or 0)
-                except ValueError:
-                    print("❌ 现金必须为纯数字，请重新输入。")
-                    continue
-                confirm = input(f" 👉 确认行动前现金为 【{pre_cash}】 元吗？[Y/N] (默认 Y): ").strip().upper()
-                if confirm == 'N': continue
-                break
+            pre_cash = self.numeric_input("💰 行动前现金数量: ", default=0, allow_negative=False)
                 
             # 2. 录入行动前收入（带确认）
-            while True:
-                income_input = input("📈 行动前收入等级: ").strip()
-                try:
-                    pre_income = int(income_input or 0)
-                except ValueError:
-                    print("❌ 收入变动必须为纯数字，请重新输入。")
-                    continue
-                confirm = input(f" 👉 确认行动前收入等级为 【{pre_income}】 吗？[Y/N] (默认 Y): ").strip().upper()
-                if confirm == 'N': continue
-                break
+            pre_income = self.numeric_input("📈 行动前收入等级: ", default=0, allow_negative=True)
             
             # 3. 录入大行动内容
             action_type = self.get_choice(ACTION_TYPES, "请选择行动内容")
@@ -214,15 +236,12 @@ class BrassTracker:
                     
             elif action_type == "建造":
                 industry = self.get_choice(INDUSTRIES, "选择建造的产业类型")
-                while True:
-                    level = input(f"请输入 {industry} 的建造等级: ").strip()
-                    confirm = input(f" 👉 确认建造等级为 【Lv{level}】 吗？[Y/N] (默认 Y): ").strip().upper()
-                    if confirm != 'N': break
+                level = self.numeric_input(f"请输入 {industry} 的建造等级: ", default=0, allow_negative=False)
                 
                 # 严格对应你的字段命名：build 记录产业+城市，industry_level 记录等级
                 build_city = self.get_choice(CITIES, "选择建造地点")
                 build = f"{industry}-{build_city}"
-                industry_level = level
+                industry_level = str(level)
                 
             elif action_type == "研发":
                 while True:
@@ -249,16 +268,15 @@ class BrassTracker:
 
     # 5. 财务清算
             print("\n--- 财务结算 ---")
-            cost_cash = int(input("本次行动产生的【花费/支出】: ") or 0)
-            round_gain = int(input("回合内即时【收益】(贷款填30/无填0): ") or 0)
-            income_shift = int(input("收入轨变动(贷款填-9，无变动填0): ") or 0)
+            cost_cash = self.numeric_input("本次行动产生的【花费/支出】: ", default=0, allow_negative=False)
+            round_gain = self.numeric_input("回合内即时【收益】(贷款填30/无填0): ", default=0, allow_negative=False)
+            income_shift = self.numeric_input("收入轨变动(贷款填-9，无变动填0): ", default=0, allow_negative=True)
             
             post_cash = pre_cash - cost_cash + round_gain
             post_income = pre_income + income_shift
             print(f"-> 自动算账：行动后现金 = {post_cash} 元，新收入等级 = {post_income}")
 
             # 6. 🌟 核心重构：定义符合你新数据结构的表头 (Headers)
-            file_exists = os.path.isfile(self.file_actions)
             headers = [
                 "action_uuid", "match_id", "player_id", "era", "round_id", "action_num", 
                 "pre_cash", "pre_income", "action_type", 
@@ -271,37 +289,55 @@ class BrassTracker:
             os.makedirs(os.path.dirname(self.file_actions), exist_ok=True)
         
             # 7. 🌟 核心重构：将专属列的值精准映射到 CSV 字典中
-            with open(self.file_actions, mode="a", newline="", encoding="utf-8-sig") as f:
-                writer = csv.DictWriter(f, fieldnames=headers)
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow({
-                    "action_uuid": str(uuid.uuid4())[:8], 
-                    "match_id": self.match_id, 
-                    "player_id": player, 
-                    "era": self.era,
-                    "round_id": self.round_id, 
-                    "action_num": self.action_num, 
-                    "pre_cash": pre_cash, 
-                    "pre_income": pre_income, 
-                    "action_type": action_type, 
-                    
-                    # 喂入你设计的高级数据结构列
-                    "canal_link": canal_link,
-                    "rail_link_1": rail_link_1,
-                    "rail_link_2": rail_link_2,
-                    "build": build,
-                    "industry_level": industry_level,
-                    "develop_count": develop_count,
-                    "developed_industry_1": developed_industry_1,
-                    "developed_industry_2": developed_industry_2,
-                    
-                    "card_type": card_type, 
-                    "card_detail": card_detail,
-                    "cost_cash": cost_cash, 
-                    "post_cash": post_cash, 
-                    "post_income": post_income
-                })
+            action_row = {
+                # use hex short id for better randomness than slicing the string form
+                "action_uuid": uuid.uuid4().hex[:8],
+                "match_id": self.match_id,
+                "player_id": player,
+                "era": self.era,
+                "round_id": self.round_id,
+                "action_num": self.action_num,
+                "pre_cash": pre_cash,
+                "pre_income": pre_income,
+                "action_type": action_type,
+                "canal_link": canal_link,
+                "rail_link_1": rail_link_1,
+                "rail_link_2": rail_link_2,
+                "build": build,
+                "industry_level": industry_level,
+                "develop_count": develop_count,
+                "developed_industry_1": developed_industry_1,
+                "developed_industry_2": developed_industry_2,
+                "card_type": card_type,
+                "card_detail": card_detail,
+                "cost_cash": cost_cash,
+                "post_cash": post_cash,
+                "post_income": post_income,
+            }
+
+            # Append using pandas for consistency (fallback to csv append on failure)
+            if os.path.isfile(self.file_actions):
+                try:
+                    df_actions = pd.read_csv(self.file_actions, dtype=str, encoding='utf-8-sig')
+                    # ensure columns exist
+                    for h in headers:
+                        if h not in df_actions.columns:
+                            df_actions[h] = ""
+                    df_actions = pd.concat([df_actions, pd.DataFrame([action_row])], ignore_index=True)
+                    df_actions.to_csv(self.file_actions, index=False, encoding='utf-8-sig')
+                except Exception:
+                    with open(self.file_actions, mode="a", newline="", encoding="utf-8-sig") as f:
+                        writer = csv.DictWriter(f, fieldnames=headers)
+                        try:
+                            if os.path.getsize(self.file_actions) == 0:
+                                writer.writeheader()
+                        except OSError:
+                            writer.writeheader()
+                        writer.writerow(action_row)
+            else:
+                df_new = pd.DataFrame([action_row], columns=headers)
+                df_new.to_csv(self.file_actions, index=False, encoding='utf-8-sig')
+
             print("\n=== 行动成功记录到事实表！ ===")
             
             self.advance_state()
@@ -324,15 +360,20 @@ class BrassTracker:
                     self.era = "铁路时代" if self.era == "运河时代" else "运河时代"
                     self.round_id = 1
                 elif cmd == "Q":
-                    exit()
+                    # prefer a clean exit
+                    raise SystemExit(0)
                 else:
                     self.round_id += 1
 
     def run(self):
-        self.init_match()
-        print("\n⚡ === 核心行动录入循环已启动（防手抖单向确认模式） ===")
-        while True:
-            self.record_action()
+        try:
+            self.init_match()
+            print("\n⚡ === 核心行动录入循环已启动（防手抖单向确认模式） ===")
+            while True:
+                self.record_action()
+        except KeyboardInterrupt:
+            print("\n🛑 已收到中断 (Ctrl+C)，程序退出。")
+            return
 
 if __name__ == "__main__":
     tracker = BrassTracker()
