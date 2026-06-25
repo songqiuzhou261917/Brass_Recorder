@@ -1,6 +1,7 @@
 import csv
 import os
 from datetime import datetime
+import uuid
 import pandas as pd
 
 class BrassTracker:
@@ -30,12 +31,33 @@ class BrassTracker:
         self.file_dim_links = os.path.join(BASE_DIR, "data", "config", "dim_board_links.csv")
         self.file_dim_cards = os.path.join(BASE_DIR, "data", "config", "dim_cards.csv")         
         
-        # 🚀 2. 使用 Pandas 从只读配置中提取初始常量
-        self.LOCATIONS = pd.read_csv(self.file_dim_locations)["location_name"].dropna().unique().tolist()
-        self.INDUSTRIES = pd.read_csv(self.file_dim_locations)["slot_industry"].dropna().unique().tolist()
-        self.LINKS_CANAL = pd.read_csv(self.file_dim_links).query("link_type in ['Both', 'Canal']")["link"].dropna().unique().tolist()
-        self.LINKS_RAIL = pd.read_csv(self.file_dim_links).query("link_type in ['Both', 'Rail']")["link"].dropna().unique().tolist()
-        self.CARDS = pd.read_csv(self.file_dim_cards)["card_contents"].dropna().tolist()        
+        # 🚀 2. 使用 Pandas 从只读配置中提取初始常量（有容错）
+        try:
+            self.LOCATIONS = pd.read_csv(self.file_dim_locations)["location_name"].dropna().unique().tolist()
+        except Exception as e:
+            print(f"⚠️ 无法读取 {self.file_dim_locations}: {e}; 将使用空地点列表。")
+            self.LOCATIONS = []
+        try:
+            self.INDUSTRIES = pd.read_csv(self.file_dim_locations)["slot_industry"].dropna().unique().tolist()
+        except Exception as e:
+            print(f"⚠️ 无法读取产业维度: {e}; 将使用空产业列表。")
+            self.INDUSTRIES = []
+        try:
+            self.LINKS_CANAL = pd.read_csv(self.file_dim_links).query("link_type in ['Both', 'Canal']")["link"].dropna().unique().tolist()
+        except Exception as e:
+            print(f"⚠️ 无法读取 {self.file_dim_links}: {e}; Canal 链接列表将为空。")
+            self.LINKS_CANAL = []
+        try:
+            self.LINKS_RAIL = pd.read_csv(self.file_dim_links).query("link_type in ['Both', 'Rail']")["link"].dropna().unique().tolist()
+        except Exception as e:
+            print(f"⚠️ 无法读取 {self.file_dim_links}: {e}; Rail 链接列表将为空。")
+            self.LINKS_RAIL = []
+        try:
+            self.CARDS = pd.read_csv(self.file_dim_cards)["card_contents"].dropna().tolist()
+        except Exception as e:
+            print(f"⚠️ 无法读取 {self.file_dim_cards}: {e}; 使用简单后备卡池。")
+            # 轻量后备卡池，保证交互能继续
+            self.CARDS = ["Coal", "Iron", "Pottery", "Beer", "Textiles", "Glass"]
 
         # 流程控制配置
         self.ACTION_TYPES = ["Loan", "Link", "Develop", "Build", "Scout", "Sell", "Skip"]
@@ -43,6 +65,7 @@ class BrassTracker:
 
         # 初始化 max_actions 为当前时代/回合的规则
         self.max_actions = 1 if (self.era == "Canal Era" and self.round_id == 1) else 2
+        # max_rounds 会在 advance_state 中根据玩家数设定
 
     def init_match(self):
         print("=========================================")
@@ -78,21 +101,35 @@ class BrassTracker:
         for i in range(num_players):
             name = input(f"\n[顺位 {i+1}] 请输入玩家昵称: ").strip()
             chosen_color = self.get_choice(self.AVAILABLE_COLORS, f"请选择 【{name}】 的玩家颜色")
-            self.AVAILABLE_COLORS.remove(chosen_color)
+            if chosen_color is None:
+                # fallback: pick first available
+                chosen_color = self.AVAILABLE_COLORS[0] if self.AVAILABLE_COLORS else "None"
+            if chosen_color in self.AVAILABLE_COLORS:
+                self.AVAILABLE_COLORS.remove(chosen_color)
             temp_players.append({"name": name, "color": chosen_color})
             
         # 4. ⚙️ 核心前置：从维度配置中提取初始卡牌总池，并让玩家选好 8 张牌
-        self.CARDS = pd.read_csv(self.file_dim_cards).query("card_contents not in ['Wild City', 'Wild Industry']")["card_contents"].dropna().tolist()
+        # self.CARDS already loaded with fallback in __init__
 
         print("\n--- 🃏 开始录入每位玩家的 8 张开局初始手牌 ---")
         for p in temp_players:
             print(f"\n👉 请为玩家 【{p['name']}】 依次选择 8 张手牌（当前牌堆剩余: {len(self.CARDS)} 张）：")
             initial_hand = []
             for i in range(8):
+                if not self.CARDS:
+                    print("⚠️ 公共卡池为空，停止补牌。")
+                    break
                 prompt_msg = f"请选择【{p['name']}】的第 {i+1}/8 张卡牌"
                 chosen_card = self.get_choice(self.CARDS, prompt_msg)
+                if chosen_card is None:
+                    # user cancelled selection loop - break out
+                    break
                 initial_hand.append(chosen_card)
-                self.CARDS.remove(chosen_card) # 从公共池销账
+                # 从公共池销账（如果存在）
+                try:
+                    self.CARDS.remove(chosen_card)
+                except ValueError:
+                    pass
             
             # 🌟 把选好的手牌列表直接挂在当前玩家的临时字典里
             p["initial_hand"] = initial_hand
@@ -141,8 +178,8 @@ class BrassTracker:
 
     def _action_loan(self, player):
         print(f"💰 【{player}】 正在执行贷款行动...")
-        # 核心逻辑：+30 现金，降 3 格收入（或按收入销表计算）
-        self._track_economy(player, cost=-30, income_delta=-3) # 贷款相当于花费负 30
+        # 核心逻辑：贷款为 +30 现金（通过 cost=-30 传入），并调低收入
+        self._track_economy(player, cost=-30, income_delta=-3)
 
     def _action_skip(self, player):
         print(f"💤 【{player}】 弃牌跳过行动。")
@@ -153,58 +190,107 @@ class BrassTracker:
     # ==========================================
     def record_action(self):
         current_player = self.players[self.current_player_idx]
+        state = self.player_states[current_player]
         print(f"\n📢 轮到玩家 【{current_player}】 执行第 {self.action_num} 次行动")
         
         # 1. 追踪手牌流向 (需求 2)
-        self._track_card_flow(current_player)
+        action_card = self._track_card_flow(current_player)
+
+        # capture pre-action economy state
+        pre_cash = state.get("money", 0)
+        pre_income = state.get("income_level", 0)
 
         # 2. 选择行动类型并动态分发
         action_type = self.get_choice(self.ACTION_TYPES, "请选择行动内容")
+        if action_type is None:
+            print("⚠️ 未选择行动类型，跳过本次行动。")
+            return
         
         # 映射字典：动态调用实例方法
         action_mapping = {
             "Loan": self._action_loan,
-            # "Link": self._action_link,
-            # "Develop": self._action_develop,
-            # "Build": self._action_build,
-            # "Scout": self._action_scout,
-            # "Sell": self._action_sell,
+            # other handlers to be implemented
             "Skip": self._action_skip
         }
+
+        action_fn = action_mapping.get(action_type)
+        if action_fn:
+            action_fn(current_player)
+        else:
+            print(f"ℹ️ 动作 {action_type} 尚未实现，已跳过执行步骤。")
+
+        # capture post-action economy state
+        post_cash = state.get("money", 0)
+        post_income = state.get("income_level", 0)
+        cash_delta = post_cash - pre_cash
+
+        # persist action-level fact row to file_actions
+        os.makedirs(os.path.dirname(self.file_actions), exist_ok=True)
+        file_exists = os.path.isfile(self.file_actions)
+        headers = [
+            "action_uuid", "match_id", "player_id", "era", "round_id", "action_num",
+            "pre_cash", "pre_income", "action_type", "card_played", "cash_delta", "post_cash", "post_income", "timestamp"
+        ]
+        row = [
+            uuid.uuid4().hex[:8], self.match_id, current_player, self.era, self.round_id, self.action_num,
+            pre_cash, pre_income, action_type, action_card or "", cash_delta, post_cash, post_income, datetime.now().isoformat()
+        ]
+        with open(self.file_actions, mode="a", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(headers)
+            writer.writerow(row)
+
+        print("\n=== 行动已记录 (action fact + card flow + economy fact) ===")
 
     # ==========================================
     # 🌟 重构核心 2：手牌流动追踪事实表流
     # ==========================================
     def _track_card_flow(self, player):
         state = self.player_states[player]
-        start_hand = list(state["hand"]) # 深度复制初始手牌状态
+        start_hand = list(state.get("hand", [])) # 深度复制初始手牌状态
         
+        if not start_hand:
+            print(f"⚠️ 玩家 {player} 当前手牌为空，跳过出牌阶段。")
+            return ""
+
         print(f"🃏 [手牌流管理] 玩家当前手牌为: {start_hand}")
         
         # 输入打出的牌（带维度的可选校验更好，这里支持手动输入）
         action_card = self.get_choice(state["hand"], f"请选择【{player}】本次行动【打出】的卡牌")
-        state["hand"].remove(action_card)
+        if action_card is None:
+            print("⚠️ 未选择卡牌，跳过出牌。")
+            return ""
+        try:
+            state["hand"].remove(action_card)
+        except ValueError:
+            # card may have been already removed due to race or input, ignore
+            pass
             
         refilled_cards = []
-
         if self.action_num == self.max_actions:
             for idx in range(self.max_actions):
-                if len(self.CARDS) > 0:  # 防呆：确保牌库没被摸秃
+                if len(self.CARDS) > 0:
                     refill = self.get_choice(self.CARDS, f"请选择补充的第 {idx+1}/{self.max_actions} 张卡牌")
+                    if refill is None:
+                        break
                     state["hand"].append(refill)
-                    refilled_cards.append(refill)  # 记录进临时列表
-                    self.CARDS.remove(refill)      # 实时从公共牌库销账
+                    refilled_cards.append(refill)
+                    try:
+                        self.CARDS.remove(refill)
+                    except ValueError:
+                        pass
                 else:
                     print("⚠️ 提示: 公共牌库已空，无法继续补牌！")
                     break
                 
-        end_hand = list(state["hand"])
+        end_hand = list(state.get("hand", []))
         
         # 写入事实表 fact_card_flows.csv
+        os.makedirs(os.path.dirname(self.file_card_flows), exist_ok=True)
         file_exists = os.path.isfile(self.file_card_flows)
         headers = ["match_id", "era", "round_id", "player_name", "action_num", "start_hand", "action_card", "end_hand"]
-        row_data = [self.match_id, self.era, self.round_id, player, self.action_num, str(start_hand), action_card, str(end_hand)]
-        
+        row_data = [self.match_id, self.era, self.round_id, player, self.action_num, str(start_hand), action_card or "", str(end_hand)]
         with open(self.file_card_flows, mode="a", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             if not file_exists:
@@ -218,27 +304,27 @@ class BrassTracker:
     # ==========================================
     def _track_economy(self, player, cost, income_delta=0):
         state = self.player_states[player]
-        money_before = state["money"]
-        income_before = state["income_level"]
+        money_before = state.get("money", 0)
+        income_before = state.get("income_level", 0)
         
-        # 内存更新
+        # 内存更新: convention in this code: cost > 0 means expense, cost < 0 means cash gain
         state["money"] -= cost
         state["income_level"] += income_delta
         
         # 只有正数开销才算进重排顺位的累计消费池中（贷款带来的负花费不进入统计）
         if cost > 0:
-            state["round_spent"] += cost
+            state["round_spent"] = state.get("round_spent", 0) + cost
             
-        money_after = state["money"]
-        income_after = state["income_level"]
+        money_after = state.get("money", 0)
+        income_after = state.get("income_level", 0)
         
         print(f"📊 经济同步成功 -> 现金: £{money_before} -> £{money_after} | 收入等级: {income_before} -> {income_after}")
         
         # 写入事实表 fact_player_economy.csv
+        os.makedirs(os.path.dirname(self.file_economy), exist_ok=True)
         file_exists = os.path.isfile(self.file_economy)
         headers = ["match_id", "era", "round_id", "player_name", "action_num", "income_level", "money_before", "cost", "money_after"]
         row_data = [self.match_id, self.era, self.round_id, player, self.action_num, income_after, money_before, cost, money_after]
-        
         with open(self.file_economy, mode="a", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             if not file_exists:
@@ -287,7 +373,8 @@ class BrassTracker:
             self.current_player_idx = 0  
             
             # 🔢 检测时代更替还是递增回合
-            if self.round_id >= self.max_actions:
+            # Compare round number to max_rounds (not max_actions)
+            if self.round_id >= self.max_rounds:
                 # 如果当前已经是该时代的最后一轮了
                 if self.era == "Canal Era":
                     print(f"\n🌅 【Canal Era】已完成最大回合数 {self.max_rounds}！")
@@ -308,14 +395,15 @@ class BrassTracker:
         Python 的 sorted() 方法具备稳定性（Stable Sort），当消费完全一致时，会自动保留上一轮原有的相对次序，完全契合黄铜官方规则！
         """
         # 使用 lambda 按内存里的 round_spent 升序排列
-        sorted_players = sorted(self.players, key=lambda p: self.player_states[p]["round_spent"])
+        sorted_players = sorted(self.players, key=lambda p: self.player_states[p].get("round_spent", 0))
         
         print("\n🏆 === 下一轮新行动顺位已生成 ===")
+        os.makedirs(os.path.dirname(self.file_turn_order), exist_ok=True)
         file_exists = os.path.isfile(self.file_turn_order)
         headers = ["match_id", "era", "round_id", "player_name", "total_spent_this_round", "next_round_order"]
         
         for idx, p_name in enumerate(sorted_players):
-            spent = self.player_states[p_name]["round_spent"]
+            spent = self.player_states[p_name].get("round_spent", 0)
             new_order = idx + 1
             print(f" 🔹 顺位 [{new_order}]: {p_name} (本轮消费: £{spent})")
             
@@ -332,6 +420,10 @@ class BrassTracker:
         self.players = sorted_players
 
     def get_choice(self, options, prompt):
+        # guard empty options
+        if not options:
+            print(f"⚠️ 可选项为空 ({prompt})。")
+            return None
         print(f"\n--- {prompt} ---")
         for i, opt in enumerate(options):
             print(f"[{i+1}] {opt}")
@@ -351,17 +443,17 @@ class BrassTracker:
             print("❌ 输入无效，请重新选择。")
 
     def run(self):
-        self.init_match()
-        # 循环录入控制
-        while not self.game_over:
-            self.record_action()
-            self.advance_state()
-            
-            # 简单假定 2 轮测试结束，避免死循环
-            if self.round_id > 3:
-                self.game_over = True
-                
-        print("\n🏁 演示对局录入完毕，所有数据已安全、分类落盘至 data/prod/ 目录！")
+        try:
+            self.init_match()
+            # 循环录入控制
+            while not self.game_over:
+                self.record_action()
+                self.advance_state()
+
+                # normal termination is based on game_over or era/round logic
+            print("\n🏁 对局录入完毕，所有数据已落盘至 data/prod/ 目录。")
+        except KeyboardInterrupt:
+            print("\n🛑 已收到中断 (Ctrl+C)，程序退出。")
 
 if __name__ == "__main__":
     tracker = BrassTracker()
