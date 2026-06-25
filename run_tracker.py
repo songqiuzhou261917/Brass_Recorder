@@ -41,6 +41,9 @@ class BrassTracker:
         self.ACTION_TYPES = ["Loan", "Link", "Develop", "Build", "Scout", "Sell", "Skip"]
         self.AVAILABLE_COLORS = ["White", "Purple", "Red", "Yellow"]
 
+        # 初始化 max_actions 为当前时代/回合的规则
+        self.max_actions = 1 if (self.era == "Canal Era" and self.round_id == 1) else 2
+
     def init_match(self):
         print("=========================================")
         print("   《工业革命：伯明翰》硬核动作录入系统 v1.5   ")
@@ -183,8 +186,6 @@ class BrassTracker:
         state["hand"].remove(action_card)
             
         refilled_cards = []
-        is_canal_first_round = (self.era == "Canal Era" and self.round_id == 1)
-        self.max_actions = 1 if is_canal_first_round else 2
 
         if self.action_num == self.max_actions:
             for idx in range(self.max_actions):
