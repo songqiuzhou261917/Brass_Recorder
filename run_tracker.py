@@ -37,11 +37,11 @@ class BrassTracker:
         except Exception as e:
             print(f"⚠️ 无法读取 {self.file_dim_locations}: {e}; 将使用空地点列表。")
             self.LOCATIONS = []
-        try:
-            self.INDUSTRIES = pd.read_csv(self.file_dim_locations)["slot_industry"].dropna().unique().tolist()
-        except Exception as e:
-            print(f"⚠️ 无法读取产业维度: {e}; 将使用空产业列表。")
-            self.INDUSTRIES = []
+        # try:
+        #     self.INDUSTRIES_CANAL = pd.read_csv(self.file_dim_locations).query("location_type == 'Canal'")["slot_industry"].dropna().unique().tolist()
+        # except Exception as e:
+        #     print(f"⚠️ 无法读取产业维度: {e}; 将使用空产业列表。")
+        #     self.INDUSTRIES = []
         try:
             self.LINKS_CANAL = pd.read_csv(self.file_dim_links).query("link_type in ['Both', 'Canal']")["link"].dropna().unique().tolist()
         except Exception as e:
@@ -53,11 +53,10 @@ class BrassTracker:
             print(f"⚠️ 无法读取 {self.file_dim_links}: {e}; Rail 链接列表将为空。")
             self.LINKS_RAIL = []
         try:
-            self.CARDS = pd.read_csv(self.file_dim_cards)["card_contents"].dropna().tolist()
+            self.CARDS = pd.read_csv(self.file_dim_cards).query("card_contents not in ['Wild City', 'Wild Industry']")["card_contents"].dropna().tolist()
         except Exception as e:
             print(f"⚠️ 无法读取 {self.file_dim_cards}: {e}; 使用简单后备卡池。")
-            # 轻量后备卡池，保证交互能继续
-            self.CARDS = ["Coal", "Iron", "Pottery", "Beer", "Textiles", "Glass"]
+            self.CARDS = []
 
         # 流程控制配置
         self.ACTION_TYPES = ["Loan", "Link", "Develop", "Build", "Scout", "Sell", "Skip"]
@@ -181,6 +180,64 @@ class BrassTracker:
         # 核心逻辑：贷款为 +30 现金（通过 cost=-30 传入），并调低收入
         self._track_economy(player, cost=-30, income_delta=-3)
 
+    def _action_link(self, player):
+        def read_int(prompt, default=0):
+            while True:
+                raw_value = input(prompt).strip()
+                if raw_value == "":
+                    return default
+                try:
+                    return int(raw_value)
+                except ValueError:
+                    print("❌ 输入无效，请输入整数。")
+
+        if self.era == "Canal Era":
+            link = self.get_choice(self.LINKS_CANAL, "请选择要修建的运河线路")
+            if link is None:
+                print("⚠️ 未选择运河线路，跳过线路行动。")
+                return ""
+
+            self.LINKS_CANAL.remove(link)
+            self._track_economy(player, cost=3)
+            description = f"Build Canal Link: {link}"
+            print(description)
+            return description
+
+        if self.era == "Rail Era":
+            double_link = input("是否进行双轨行动 (Double Link)？[Y/N] (默认 N): ").strip().upper() == "Y"
+
+            if double_link:
+                built_links = []
+                for idx in range(2):
+                    link = self.get_choice(self.LINKS_RAIL, f"请选择要修建的铁路线路 {idx + 1}/2")
+                    if link is None:
+                        print("⚠️ 未选择铁路线路，终止双轨行动。")
+                        return ""
+
+                    self.LINKS_RAIL.remove(link)
+                    built_links.append(link)
+
+                coal_cost = read_int("请输入本次购买 2 个煤的总花费 (若消耗免费煤输 0): ")
+                self._track_economy(player, cost=15 + coal_cost)
+                description = f"Double Rail Links: {built_links[0]} & {built_links[1]}, Coal Cost: {coal_cost}"
+                print(description)
+                return description
+
+            link = self.get_choice(self.LINKS_RAIL, "请选择要修建的铁路线路")
+            if link is None:
+                print("⚠️ 未选择铁路线路，跳过线路行动。")
+                return ""
+
+            self.LINKS_RAIL.remove(link)
+            coal_cost = read_int("请输入本次购买 1 个煤的花费 (若消耗免费煤输 0): ")
+            self._track_economy(player, cost=5 + coal_cost)
+            description = f"Build Rail Link: {link}, Coal Cost: {coal_cost}"
+            print(description)
+            return description
+
+        print(f"⚠️ 未知时代 {self.era}，无法执行修建线路行动。")
+        return ""
+
     def _action_skip(self, player):
         print(f"💤 【{player}】 弃牌跳过行动。")
         self._track_economy(player, cost=0)
@@ -191,7 +248,7 @@ class BrassTracker:
     def record_action(self):
         current_player = self.players[self.current_player_idx]
         state = self.player_states[current_player]
-        print(f"\n📢 轮到玩家 【{current_player}】 执行第 {self.action_num} 次行动")
+        print(f"\n📢 第 {self.round_id} 轮，轮到玩家 【{current_player}】 执行第 {self.action_num} 次行动")
         
         # 1. 追踪手牌流向 (需求 2)
         action_card = self._track_card_flow(current_player)
@@ -209,7 +266,9 @@ class BrassTracker:
         # 映射字典：动态调用实例方法
         action_mapping = {
             "Loan": self._action_loan,
-            # other handlers to be implemented
+            "Link": self._action_link,
+            # more action types can be added here
+
             "Skip": self._action_skip
         }
 
