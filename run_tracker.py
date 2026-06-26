@@ -1,7 +1,6 @@
 import csv
 import os
 from datetime import datetime
-import uuid
 import pandas as pd
 
 class BrassTracker:
