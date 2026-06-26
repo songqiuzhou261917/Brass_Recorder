@@ -1,0 +1,46 @@
+﻿ID,industry_name_level,industry_type,level,price,coal_cost,iron_cost,coal_produce,iron_produce,income_level_change,available_era,points,link_points
+IND_001,Iron 1,Iron Works,1,5,1,0,0,4,3,Canal Era,3,1
+IND_002,Iron 2,Iron Works,2,7,1,0,0,4,3,Both,5,1
+IND_003,Iron 3,Iron Works,3,9,1,0,0,5,2,Both,7,1
+IND_004,Iron 4,Iron Works,4,12,1,0,0,6,1,Both,9,1
+IND_005,Coal 1,Coal Mine,1,5,0,0,2,0,4,Canal Era,1,2
+IND_006,Coal 2,Coal Mine,2,7,0,0,3,0,7,Both,2,1
+IND_007,Coal 2,Coal Mine,2,7,0,0,3,0,7,Both,2,1
+IND_008,Coal 3,Coal Mine,3,8,0,1,4,0,6,Both,3,1
+IND_009,Coal 3,Coal Mine,3,8,0,1,4,0,6,Both,3,1
+IND_010,Coal 4,Coal Mine,4,10,0,1,5,0,5,Both,4,1
+IND_011,Coal 4,Coal Mine,4,10,0,1,5,0,5,Both,4,1
+IND_012,Cotton 1,Cotton Mill,1,12,0,0,0,0,5,Canal Era,5,1
+IND_013,Cotton 1,Cotton Mill,1,12,0,0,0,0,5,Canal Era,5,1
+IND_014,Cotton 1,Cotton Mill,1,12,0,0,0,0,5,Canal Era,5,1
+IND_015,Cotton 2,Cotton Mill,2,14,1,0,0,0,4,Both,5,2
+IND_016,Cotton 2,Cotton Mill,2,14,1,0,0,0,4,Both,5,2
+IND_017,Cotton 3,Cotton Mill,3,16,1,1,0,0,3,Both,9,1
+IND_018,Cotton 3,Cotton Mill,3,16,1,1,0,0,3,Both,9,1
+IND_019,Cotton 3,Cotton Mill,3,16,1,1,0,0,3,Both,9,1
+IND_020,Cotton 4,Cotton Mill,4,18,1,1,0,0,2,Both,13,1
+IND_021,Cotton 4,Cotton Mill,4,18,1,1,0,0,2,Both,13,1
+IND_022,Cotton 4,Cotton Mill,4,18,1,1,0,0,2,Both,13,1
+IND_023,Pottery 1,Pottery,1,17,0,1,0,0,5,Both,10,1
+IND_024,Pottery 2,Pottery,2,0,1,0,0,0,1,Both,1,1
+IND_025,Pottery 3,Pottery,3,22,2,0,0,0,5,Both,11,1
+IND_026,Pottery 4,Pottery,4,0,1,0,0,0,1,Both,1,1
+IND_027,Pottery 5,Pottery,5,24,2,0,0,0,5,Rail Only,20,1
+IND_028,Brewery 1,Brewery,1,5,0,1,0,0,4,Canal Only,4,2
+IND_029,Brewery 1,Brewery,1,5,0,1,0,0,4,Canal Only,4,2
+IND_030,Brewery 2,Brewery,2,7,0,1,0,0,5,Both,5,2
+IND_031,Brewery 2,Brewery,2,7,0,1,0,0,5,Both,5,2
+IND_032,Brewery 3,Brewery,3,9,0,1,0,0,5,Both,7,2
+IND_033,Brewery 3,Brewery,3,9,0,1,0,0,5,Both,7,2
+IND_034,Brewery 4,Brewery,4,9,0,1,0,0,5,Rail Only,10,2
+IND_035,Man.Goods 1,Man.Goods,1,8,1,0,0,0,5,Canal Only,3,2
+IND_036,Man.Goods 2,Man.Goods,2,10,0,1,0,0,1,Both,5,1
+IND_037,Man.Goods 2,Man.Goods,2,10,0,1,0,0,1,Both,5,1
+IND_038,Man.Goods 3,Man.Goods,3,12,2,0,0,0,4,Both,4,0
+IND_039,Man.Goods 4,Man.Goods,4,8,0,1,0,0,6,Both,3,1
+IND_040,Man.Goods 5,Man.Goods,5,16,1,0,0,0,2,Both,8,2
+IND_041,Man.Goods 5,Man.Goods,5,16,1,0,0,0,2,Both,8,2
+IND_042,Man.Goods 6,Man.Goods,6,20,0,0,0,0,6,Both,7,1
+IND_043,Man.Goods 7,Man.Goods,7,16,1,1,0,0,4,Both,9,0
+IND_044,Man.Goods 8,Man.Goods,8,20,0,2,0,0,1,Both,11,1
+IND_045,Man.Goods 8,Man.Goods,8,20,0,2,0,0,1,Both,11,1
